@@ -1,0 +1,1 @@
+default_app_config = 'reservation_passengers.apps.ReservationPassengersConfig'

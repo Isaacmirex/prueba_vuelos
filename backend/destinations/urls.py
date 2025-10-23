@@ -1,7 +1,9 @@
-from django.urls import path
-from .views import DestinationListView, DestinationDetailView
+# URL patterns for destinations app
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import DestinationViewSet
 
-urlpatterns = [
-    path('', DestinationListView.as_view(), name='destination-list'),          # GET /api/destinations/
-    path('<int:pk>/', DestinationDetailView.as_view(), name='destination-detail'),  # GET, PUT, DELETE /api/destinations/{id}/
-]
+router = DefaultRouter()
+router.register(r'', DestinationViewSet, basename='destination')
+
+urlpatterns = router.urls

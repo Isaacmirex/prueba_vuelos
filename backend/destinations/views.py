@@ -1,8 +1,153 @@
-from rest_framework import viewsets
+# Views for destinations app
+from rest_framework import viewsets, status, filters
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+
 from .models import Destination
-from .serializers import DestinationSerializer
+from .serializers import (
+    DestinationSerializer,
+    DestinationListSerializer,
+    DestinationCreateUpdateSerializer
+)
 
 
 class DestinationViewSet(viewsets.ModelViewSet):
-    queryset = Destination.objects.filter(is_active=True)
-    serializer_class = DestinationSerializer
+    """
+    ViewSet for managing destinations
+    """
+    queryset = Destination.objects.all()
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'code', 'province']
+    ordering_fields = ['name', 'code', 'province', 'created_at']
+    ordering = ['name']
+
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == 'list':
+            return DestinationListSerializer
+        elif self.action in ['create', 'update', 'partial_update']:
+            return DestinationCreateUpdateSerializer
+        return DestinationSerializer
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active']:
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        """Filter queryset by query parameters"""
+        queryset = super().get_queryset()
+        
+        # Filter by province
+        province = self.request.query_params.get('province', None)
+        if province:
+            queryset = queryset.filter(province__icontains=province)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            if is_active.lower() == 'true':
+                queryset = queryset.filter(is_active=True)
+            elif is_active.lower() == 'false':
+                queryset = queryset.filter(is_active=False)
+        
+        # Filter by active_only parameter
+        active_only = self.request.query_params.get('active_only', None)
+        if active_only and active_only.lower() == 'true':
+            queryset = queryset.filter(is_active=True)
+        
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """List all destinations"""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        """Create a new destination"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        destination = Destination.objects.get(pk=serializer.instance.pk)
+        output_serializer = DestinationSerializer(destination)
+        
+        return Response(
+            output_serializer.data,
+            status=status.HTTP_201_CREATED
+        )
+
+    def update(self, request, *args, **kwargs):
+        """Update a destination"""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        destination = Destination.objects.get(pk=instance.pk)
+        output_serializer = DestinationSerializer(destination)
+        
+        return Response(output_serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete a destination"""
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def active(self, request):
+        """Get only active destinations"""
+        queryset = self.get_queryset().filter(is_active=True)
+        serializer = DestinationListSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def toggle_active(self, request, pk=None):
+        """Toggle destination active status"""
+        destination = self.get_object()
+        destination.is_active = not destination.is_active
+        destination.save()
+        
+        serializer = DestinationSerializer(destination)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def by_province(self, request):
+        """Group destinations by province"""
+        provinces = self.get_queryset().values_list('province', flat=True).distinct()
+        result = {}
+        
+        for province in provinces:
+            destinations = self.get_queryset().filter(province=province)
+            result[province] = DestinationListSerializer(destinations, many=True).data
+        
+        return Response(result)
+
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
+    def nearby(self, request, pk=None):
+        """Get nearby destinations (placeholder - would need geospatial queries)"""
+        destination = self.get_object()
+        
+        if not destination.latitude or not destination.longitude:
+            return Response(
+                {"error": "This destination doesn't have coordinates"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Simple implementation - would be better with PostGIS
+        return Response({
+            "message": "Nearby destinations feature",
+            "destination": destination.name,
+            "coordinates": destination.get_coordinates()
+        })
