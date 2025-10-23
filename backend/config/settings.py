@@ -93,7 +93,9 @@ DATABASES = {
         'USER': os.getenv('DB_USER'),
         'PASSWORD': os.getenv('DB_PASSWORD'),
         'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
+        # ¡CORRECCIÓN DEFINITIVA! Hardcodeamos el puerto de la DB
+        # para evitar que EMAIL_PORT lo contamine.
+        'PORT': 5432,
     }
 }
 
@@ -158,16 +160,44 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 # --- FIN DE CONFIGURACIÓN DE CELERY ---
+# --------------------------------------------------------
+# --- CONFIGURACIÓN DE CELERY BEAT (Tareas Programadas) ---
+# --------------------------------------------------------
+from celery.schedules import timedelta
+# Si deseas una hora específica (por ejemplo, 9:00 AM), importa crontab:
+# from celery.schedules import crontab 
 
+CELERY_BEAT_SCHEDULE = {
+    'send-flight-reminders-daily': {
+        # Usa la tarea interna de Django para ejecutar management commands
+        'task': 'django.core.management.call_command',
+        
+        # Programar para que se ejecute una vez al día
+        'schedule': timedelta(days=1), 
+        
+        # El comando que se debe ejecutar (nombre del archivo sin .py)
+        'args': ['send_flight_reminders'],
+        
+        # Opcional: Si quieres que se ejecute todos los días a las 9:00 AM (necesita importar crontab)
+        # 'schedule': crontab(hour=9, minute=0),
+    },
+}
+# --------------------------------------------------------
+# --- FIN DE CONFIGURACIÓN DE CELERY BEAT ---
+# --------------------------------------------------------
 
 # --- CONFIGURACIÓN DE EMAIL (CON CELERY) ---
-EMAIL_BACKEND = "djcelery_email.backends.CeleryEmailBackend" # ¡IMPORTANTE!
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER') # Desde .env
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD') # Desde .env
+
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" 
+EMAIL_HOST =  'smtp.gmail.com'
+EMAIL_USE_TLS = True
+EMAIL_PORT =  587
+EMAIL_USE_SSL = False # Desactivado por defecto.
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER') 
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD') 
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+
 # --- FIN DE CONFIGURACIÓN DE EMAIL ---
 
 
