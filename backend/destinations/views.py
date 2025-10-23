@@ -11,6 +11,13 @@ from .serializers import (
     DestinationCreateUpdateSerializer
 )
 
+# --- ¡AÑADIDO PARA REDIS! ---
+from django.core.cache import cache
+from django.conf import settings
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+# --- FIN DE ADICIONES ---
+
 
 class DestinationViewSet(viewsets.ModelViewSet):
     """
@@ -60,23 +67,87 @@ class DestinationViewSet(viewsets.ModelViewSet):
         
         return queryset
 
+    # --- FUNCIÓN HELPER PARA LIMPIAR CACHÉ ---
+    def _clear_destination_cache(self, pk=None):
+        """Limpia el caché de detalle y todas las listas."""
+        if pk:
+            # Borra el caché del detalle específico
+            cache.delete(f"destination_detail_{pk}")
+        
+        # Borra todos los cachés de listas (usa delete_pattern de django-redis)
+        cache.delete_pattern("destinations_list_*")
+        # Borra los cachés de las acciones personalizadas (key_prefix)
+        cache.delete_pattern("destinations_active*")
+        cache.delete_pattern("destinations_by_province*")
+        cache.delete_pattern("destinations_nearby*")
+
+
+    # --- ACCIÓN 'list' MODIFICADA CON CACHÉ MANUAL ---
     def list(self, request, *args, **kwargs):
-        """List all destinations"""
+        """
+        List all destinations
+        (Modificado para usar el Low-Level Cache API de Redis)
+        """
+        # 1. Crear clave de caché única basada en los parámetros de consulta
+        #    (para que ?province=X y ?is_active=true tengan cachés diferentes)
+        cache_key = f"destinations_list_{request.query_params.urlencode()}"
+        
+        # 2. Intentar obtener de la caché
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            # ¡Encontrado en caché! Retornar directamente.
+            return Response(cached_data)
+
+        # 3. Si no, consultar la BD (el trabajo normal)
         queryset = self.filter_queryset(self.get_queryset())
         
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            # .data es importante para cachear el JSON, no el objeto Response
+            response_data = self.get_paginated_response(serializer.data).data
+        else:
+            serializer = self.get_serializer(queryset, many=True)
+            response_data = serializer.data
         
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        # 4. Guardar en caché antes de retornar
+        cache.set(cache_key, response_data, settings.API_CACHE_TIMEOUT)
+        
+        # 5. Retornar respuesta
+        return Response(response_data)
+
+    # --- ACCIÓN 'retrieve' (IMPLÍCITA) MODIFICADA CON CACHÉ MANUAL ---
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Get a single destination by ID
+        (Modificado para usar el Low-Level Cache API de Redis)
+        """
+        pk = kwargs.get('pk')
+        cache_key = f"destination_detail_{pk}"
+
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        response_data = serializer.data
+        
+        # Guardar en caché
+        cache.set(cache_key, response_data, settings.API_CACHE_TIMEOUT)
+        
+        return Response(response_data)
+
+    # --- ACCIONES DE ESCRITURA CON INVALIDACIÓN DE CACHÉ ---
 
     def create(self, request, *args, **kwargs):
         """Create a new destination"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
+        
+        # ¡LIMPIAR CACHÉ!
+        self._clear_destination_cache()
         
         destination = Destination.objects.get(pk=serializer.instance.pk)
         output_serializer = DestinationSerializer(destination)
@@ -94,6 +165,9 @@ class DestinationViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         
+        # ¡LIMPIAR CACHÉ!
+        self._clear_destination_cache(pk=instance.pk)
+        
         destination = Destination.objects.get(pk=instance.pk)
         output_serializer = DestinationSerializer(destination)
         
@@ -102,9 +176,18 @@ class DestinationViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         """Delete a destination"""
         instance = self.get_object()
+        pk = instance.pk # Guardar pk antes de borrar
         self.perform_destroy(instance)
+        
+        # ¡LIMPIAR CACHÉ!
+        self._clear_destination_cache(pk=pk)
+        
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    # --- ACCIONES PERSONALIZADAS (LECTURA) CON CACHÉ 'cache_page' ---
+    # Este es el método más simple (automático)
+    
+    @method_decorator(cache_page(settings.API_CACHE_TIMEOUT, key_prefix="destinations_active"))
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def active(self, request):
         """Get only active destinations"""
@@ -119,9 +202,13 @@ class DestinationViewSet(viewsets.ModelViewSet):
         destination.is_active = not destination.is_active
         destination.save()
         
+        # ¡LIMPIAR CACHÉ!
+        self._clear_destination_cache(pk=destination.pk)
+        
         serializer = DestinationSerializer(destination)
         return Response(serializer.data)
 
+    @method_decorator(cache_page(settings.API_CACHE_TIMEOUT, key_prefix="destinations_by_province"))
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def by_province(self, request):
         """Group destinations by province"""
@@ -134,6 +221,7 @@ class DestinationViewSet(viewsets.ModelViewSet):
         
         return Response(result)
 
+    @method_decorator(cache_page(settings.API_CACHE_TIMEOUT, key_prefix="destinations_nearby"))
     @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
     def nearby(self, request, pk=None):
         """Get nearby destinations (placeholder - would need geospatial queries)"""

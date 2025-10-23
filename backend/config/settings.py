@@ -2,17 +2,20 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Carga el .env
+load_dotenv(BASE_DIR / '.env') 
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-a(p(%avvz6o_h&0vf4pc^&qeyt1c14x=u(49j!lvadne7rf7vk'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-a(p(%avvz6o_h&0vf4pc^&qeyt1c14x=u(49j!lvadne7rf7vk')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
+
 
 # Application definition
 INSTALLED_APPS = [
@@ -23,15 +26,19 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
     # Terceros
     'rest_framework',
-    'rest_framework.authtoken',  # <- AGREGAR ESTA LÍNEA
+    'rest_framework.authtoken',
     'rest_framework_simplejwt',
     'django_filters',
     'dj_rest_auth',
     'allauth',
     'allauth.account',
     'dj_rest_auth.registration',
+    'djcelery_email', # Para correos asíncronos
+    
+    # Apps locales
     'authentication',
     'destinations',
     'flights',
@@ -42,7 +49,10 @@ INSTALLED_APPS = [
     'reservation_passengers',
 ]
 
+# --- ¡CORRECCIÓN DE CACHÉ! ---
+# Añadimos los middleware de caché. El orden es MUY importante.
 MIDDLEWARE = [
+    'django.middleware.cache.UpdateCacheMiddleware', # Debe ser el primero
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -50,8 +60,10 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'allauth.account.middleware.AccountMiddleware',  # <- AGREGADA AQUÍ!
+    'allauth.account.middleware.AccountMiddleware',
+    'django.middleware.cache.FetchFromCacheMiddleware', # Debe ser el último
 ]
+# --- FIN DE LA CORRECCIÓN ---
 
 ROOT_URLCONF = 'config.urls'
 
@@ -73,9 +85,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Base de datos (desarrollo: SQLite, pon PostgreSQL para producción)
-load_dotenv()  # Carga el .env
-
+# Base de datos
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -96,8 +106,8 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internacionalización
-LANGUAGE_CODE = 'es'  # Cambia si prefieres inglés
-TIME_ZONE = 'America/Guayaquil'  # Ecuador, pon UTC si prefieres
+LANGUAGE_CODE = 'es'
+TIME_ZONE = 'America/Guayaquil'
 USE_I18N = True
 USE_TZ = True
 
@@ -109,24 +119,57 @@ AUTH_USER_MODEL = 'authentication.User'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Redis y Celery
+
+# --- CONFIGURACIÓN DE REDIS Y CACHÉ ---
+# Asegúrate de estar ejecutando Django localmente (no en Docker)
+# Si ejecutas Django en Docker, cambia '127.0.0.1' a 'redis-local'
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
-        'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'}
+        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1', # Base de datos 1 para caché
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'PICKLE_VERSION': -1,
+            # 'PARSER_CLASS': 'redis.connection.HiredisParser', # <- Eliminado para compatibilidad
+        },
+        'KEY_PREFIX': 'flight_system',
+        'TIMEOUT': 600,  # 10 minutos (default para cache.set)
     }
 }
-CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
-CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
 
-# Email para notificaciones (pon tu correo de prueba y contraseña aquí)
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "tu_correo@gmail.com"
-EMAIL_HOST_PASSWORD = "tu_contraseña"
+# Configuración de sesión con Redis
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+
+# Configuración personalizada de caché para API (usado en @cache_page)
+API_CACHE_TIMEOUT = 600  # 10 minutos en segundos
+
+# --- FIN DE CONFIGURACIÓN DE REDIS Y CACHÉ ---
+
+
+# --- CONFIGURACIÓN DE CELERY ---
+CELERY_BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/0' # Base de datos 0 para Celery
+CELERY_RESULT_BACKEND = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+# --- FIN DE CONFIGURACIÓN DE CELERY ---
+
+
+# --- CONFIGURACIÓN DE EMAIL (CON CELERY) ---
+EMAIL_BACKEND = "djcelery_email.backends.CeleryEmailBackend" # ¡IMPORTANTE!
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER') # Desde .env
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD') # Desde .env
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+# --- FIN DE CONFIGURACIÓN DE EMAIL ---
+
 
 # Django REST Framework y JWT
 REST_FRAMEWORK = {
@@ -151,3 +194,13 @@ REST_AUTH = {
     'JWT_AUTH_COOKIE': 'auth-token',
     'USER_DETAILS_SERIALIZER': 'authentication.serializers.UserSerializer',
 }
+
+# Configuración de AllAuth (para dj-rest-auth)
+SITE_ID = 1
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_SESSION_REMEMBER = True
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_EMAIL_VERIFICATION = 'none' # Cambiar a 'mandatory' en producción
+
