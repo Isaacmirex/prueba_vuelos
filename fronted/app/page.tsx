@@ -348,12 +348,12 @@ export default function HomePage() {
                           {Number.parseFloat(flight.adult_price).toFixed(0)}
                         </span>
                       </div>
-                      <Button
+                      {/* <Button
                         onClick={() => router.push(`/vuelos/${flight.id}`)}
                         className="bg-blue-600 hover:bg-blue-700 text-white"
                       >
                         Reservar →
-                      </Button>
+                      </Button> */}
                     </div>
                   </div>
                 </Card>
