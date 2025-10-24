@@ -52,7 +52,6 @@ export default function HomePage() {
   const [origin, setOrigin] = useState("")
   const [destination, setDestination] = useState("")
   const [date, setDate] = useState<Date>()
-  const [passengers, setPassengers] = useState(2)
   const [classType, setClassType] = useState("Persona, Económica")
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
@@ -154,6 +153,17 @@ export default function HomePage() {
   }, [isAuthenticated])
 
   const handleSearch = () => {
+    const passengersCount = classType.includes("2 Personas") ? 2 : classType.includes("3 Personas") ? 3 : 1
+    
+    const searchParams = {
+      originCode: origin,
+      destinationCode: destination,
+      date: date ? format(date, "yyyy-MM-dd") : null,
+      passengers: passengersCount,
+      classType: classType
+    }
+    
+    sessionStorage.setItem("flight_search_params", JSON.stringify(searchParams))
     router.push("/vuelos")
   }
 

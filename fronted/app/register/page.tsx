@@ -176,7 +176,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex">
       <div className="hidden lg:block lg:w-1/2 relative">
         <img
-          src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-fdl9XdWwuG7p2YdrVlt8I1eZWI5jNe.png"
+          src="https://media.licdn.com/dms/image/v2/D4E22AQEkdb_uGJ-40A/feedshare-shrink_800/feedshare-shrink_800/0/1726517437407?e=2147483647&v=beta&t=yc5qoG3WF-GQODvYilk4Hxr3nirzmrv-T2Q4LEvur6I"
           alt="Airplane"
           className="absolute inset-0 w-full h-full object-cover"
         />
