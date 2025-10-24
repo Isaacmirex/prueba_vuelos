@@ -13,7 +13,39 @@ import { CalendarIcon, Plane, Users, ArrowRightLeft } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { cn } from "@/lib/utils"
-import { api, type Flight, type Destination } from "@/lib/api"
+
+interface Destination {
+  id: number
+  name: string
+  code: string
+  province: string
+  is_active: boolean
+  image_url: string | null
+}
+
+interface Airline {
+  id: number
+  name: string
+  code: string
+  logo_url: string
+  created_at: string
+  updated_at: string
+}
+
+interface Flight {
+  id: number
+  flight_code: string
+  airline: Airline
+  origin: string
+  destination: string
+  departure_datetime: string
+  arrival_datetime: string
+  duration_minutes: number
+  adult_price: string
+  available_seats: number
+  status: string
+  is_available: boolean
+}
 
 export default function HomePage() {
   const router = useRouter()
@@ -86,17 +118,31 @@ export default function HomePage() {
 
     const fetchData = async () => {
       try {
-        const [destinationsData, flightsData] = await Promise.all([api.getDestinations(), api.getFlights()])
+        const token = localStorage.getItem("token")
+        
+        const [destinationsRes, flightsRes] = await Promise.all([
+          fetch("http://127.0.0.1:8000/api/destinations/", {
+            headers: { Authorization: `Bearer ${token}` }
+          }),
+          fetch("http://127.0.0.1:8000/api/flights/", {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        ])
 
-        setDestinations(destinationsData)
-        setFlights(flightsData.slice(0, 4))
+        const destinationsData = await destinationsRes.json()
+        const flightsData = await flightsRes.json()
 
-        if (destinationsData.length >= 2) {
-          setOrigin(destinationsData[0].code)
-          setDestination(destinationsData[1].code)
+        const activeDestinations = destinationsData.results.filter((d: Destination) => d.is_active)
+
+        setDestinations(activeDestinations)
+        setFlights(flightsData.results.slice(0, 4))
+
+        if (activeDestinations.length >= 2) {
+          setOrigin(activeDestinations[0].code)
+          setDestination(activeDestinations[1].code)
         }
       } catch (error) {
-        console.error("[v0] Error fetching data:", error)
+        console.error("Error fetching data:", error)
         setDestinations([])
         setFlights([])
       } finally {
@@ -115,6 +161,10 @@ export default function HomePage() {
     const temp = origin
     setOrigin(destination)
     setDestination(temp)
+  }
+
+  const availableDestinations = (excludeCode: string) => {
+    return destinations.filter(dest => dest.code !== excludeCode)
   }
 
   if (isCheckingAuth) {
@@ -150,9 +200,12 @@ export default function HomePage() {
                   <SelectValue placeholder="Seleccionar origen" />
                 </SelectTrigger>
                 <SelectContent>
-                  {destinations.map((dest) => (
+                  {availableDestinations(destination).map((dest) => (
                     <SelectItem key={dest.id} value={dest.code}>
-                      {dest.name} - Ecuador
+                      <div className="flex flex-col">
+                        <span className="font-medium">{dest.code}</span>
+                        <span className="text-xs text-gray-500">{dest.name}</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -178,9 +231,12 @@ export default function HomePage() {
                   <SelectValue placeholder="Seleccionar destino" />
                 </SelectTrigger>
                 <SelectContent>
-                  {destinations.map((dest) => (
+                  {availableDestinations(origin).map((dest) => (
                     <SelectItem key={dest.id} value={dest.code}>
-                      {dest.name} - Ecuador
+                      <div className="flex flex-col">
+                        <span className="font-medium">{dest.code}</span>
+                        <span className="text-xs text-gray-500">{dest.name}</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -260,15 +316,17 @@ export default function HomePage() {
                     </div>
 
                     <div className="mb-4">
-                      <p className="text-sm text-gray-600">{flight.origin.name} - Ecuador</p>
-                      <p className="text-sm text-gray-600">{flight.destination.name} - Ecuador</p>
+                      <p className="text-sm text-gray-600">{flight.origin} - Ecuador</p>
+                      <p className="text-sm text-gray-600">{flight.destination} - Ecuador</p>
                     </div>
 
                     <div className="mb-4">
                       <p className="text-sm font-bold">
-                        FECHA: {format(new Date(flight.departure_date), "dd/MM/yyyy")}
+                        FECHA: {format(new Date(flight.departure_datetime), "dd/MM/yyyy")}
                       </p>
-                      <p className="text-sm font-bold">HORA: {flight.departure_time}</p>
+                      <p className="text-sm font-bold">
+                        HORA: {format(new Date(flight.departure_datetime), "HH:mm")}
+                      </p>
                     </div>
 
                     <p className="text-xs text-gray-600 mb-4">Precio especial por temporada por persona desde</p>
@@ -277,7 +335,7 @@ export default function HomePage() {
                       <div>
                         <span className="text-xs text-gray-600">USD</span>
                         <span className="text-2xl font-bold ml-1">
-                          {Number.parseFloat(flight.price_per_person).toFixed(0)}
+                          {Number.parseFloat(flight.adult_price).toFixed(0)}
                         </span>
                       </div>
                       <Button
