@@ -199,5 +199,6 @@ celery -A config worker -l info
 # Terminal separada: iniciar celery beat
 celery -A config beat -l info
 ```
+# El archivo de backup de Postgres lo contiene en la carpeta database_postgres
 
 
