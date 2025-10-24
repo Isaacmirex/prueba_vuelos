@@ -45,6 +45,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [forceTableKey, setForceTableKey] = useState(0) // para forzar el rerender de la tabla
   const itemsPerPage = 10
   const { toast } = useToast()
 
@@ -84,8 +85,8 @@ export default function AdminPage() {
         setDestinations(data.results || data)
         setTotalDestinations(data.count || (data.results ? data.results.length : 0))
         setCurrentPage(page)
+        setForceTableKey(k => k + 1) // fuerza la tabla a renderizarse de nuevo
       } else if (activeView === "flights") {
-        // Si tu API soporta paginación para flights, modifícalo así
         const [flightsRes, airlinesRes, destinationsRes] = await Promise.all([
           fetch(`http://127.0.0.1:8000/api/flights/?page=${page}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
           fetch("http://127.0.0.1:8000/api/airlines/", { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
@@ -97,6 +98,7 @@ export default function AdminPage() {
         setFlights(flightsData.results || flightsData)
         setAirlines(airlinesData.results || airlinesData)
         setDestinations(destinationsData.results || destinationsData)
+        setForceTableKey(k => k + 1)
       }
     } catch (error) {
       console.error("[v0] Error fetching data:", error)
@@ -136,7 +138,6 @@ export default function AdminPage() {
     }
   }
 
-  // Guardar destino y refrescar la página 1 para mostrarlo arriba (la API lo coloca al final, pero si cambia el orden, ajusta backend)
   const handleCreateDestination = async () => {
     try {
       const token = localStorage.getItem("token")
@@ -171,7 +172,7 @@ export default function AdminPage() {
       })
       setIsCreateDialogOpen(false)
       setNewDestination({ name: "", code: "", province: "", is_active: true })
-      await fetchData(1) // SIEMPRE refresca la página 1 tras crear
+      await fetchData(1)
     } catch (error) {
       let mensaje = "No se pudo crear el destino."
       if (error instanceof Error) {
@@ -238,11 +239,8 @@ export default function AdminPage() {
       dest.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  // Calcula el total de páginas usando el contador de la API
   const totalPagesUsers = Math.ceil(filteredUsers.length / itemsPerPage)
   const totalPagesDestinations = Math.ceil(totalDestinations / itemsPerPage)
-
-  // El backend ya entrega solo la cantidad correcta para la página, así que NO pagines localmente para destinos
   const paginatedUsers = filteredUsers.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -255,7 +253,6 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-white">
       <Header />
-
       <main className="container mx-auto px-4 py-8">
         <div className="flex gap-4 mb-8">
           <Button
@@ -273,17 +270,13 @@ export default function AdminPage() {
             Añadir destino
           </Button>
         </div>
-
         {loading && <p className="text-center py-8">Cargando datos...</p>}
-
         {!loading && activeView === "users" && filteredUsers.length === 0 && (
           <p className="text-center py-8 text-gray-500">No hay usuarios disponibles</p>
         )}
-
         {!loading && activeView === "destinations" && destinations.length === 0 && (
           <p className="text-center py-8 text-gray-500">No hay destinos disponibles</p>
         )}
-
         {activeView === "users" && (
           <>
             <div className="mb-6 flex gap-4 items-center">
@@ -298,7 +291,6 @@ export default function AdminPage() {
                 <Search className="w-4 h-4" />
               </Button>
             </div>
-
             <Card className="overflow-hidden border-2">
               <div className="overflow-x-auto">
                 <Table>
@@ -362,7 +354,6 @@ export default function AdminPage() {
             />
           </>
         )}
-
         {activeView === "destinations" && (
           <>
             <div className="mb-6 flex gap-4 items-center">
@@ -440,7 +431,6 @@ export default function AdminPage() {
                   </div>
                 </DialogContent>
               </Dialog>
-
               <div className="relative flex-1">
                 <Input
                   placeholder="Buscar codigo"
@@ -452,10 +442,9 @@ export default function AdminPage() {
                 <Search className="w-4 h-4" />
               </Button>
             </div>
-
             <Card className="overflow-hidden border-2">
               <div className="overflow-x-auto">
-                <Table>
+                <Table key={forceTableKey}>
                   <TableHeader>
                     <TableRow className="bg-gray-50">
                       <TableHead className="font-bold">ID</TableHead>
@@ -466,11 +455,7 @@ export default function AdminPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {destinations.filter(
-                      (dest) =>
-                        dest.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        dest.name.toLowerCase().includes(searchQuery.toLowerCase())
-                    ).map((dest) => (
+                    {filteredDestinations.map((dest) => (
                       <TableRow key={dest.id} className="hover:bg-gray-50">
                         <TableCell>{dest.id}</TableCell>
                         <TableCell>{dest.name}</TableCell>
@@ -493,7 +478,6 @@ export default function AdminPage() {
                 </Table>
               </div>
             </Card>
-            {/* PAGINACIÓN REAL */}
             <Pagination
               currentPage={currentPage}
               totalPages={totalPagesDestinations}
@@ -501,12 +485,7 @@ export default function AdminPage() {
             />
           </>
         )}
-
-        {activeView === "flights" && (
-          <>
-            {/* ...tu módulo de vuelos igual, sin cambios... */}
-          </>
-        )}
+        {/* ...flights igual... */}
       </main>
     </div>
   )

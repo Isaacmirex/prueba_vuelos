@@ -5,7 +5,7 @@ from .models import User
 
 
 class UserSerializer(serializers.ModelSerializer):
-    age = serializers.ReadOnlyField()  # Campo calculado automáticamente
+    age = serializers.ReadOnlyField()
     
     class Meta:
         model = User
@@ -30,7 +30,13 @@ class CustomLoginSerializer(LoginSerializer):
         password = attrs.get('password')
 
         if email and password:
-            user = authenticate(request=self.context.get('request'), email=email, password=password)
+            # Autentica directamente con email usando nuestro backend personalizado
+            user = authenticate(
+                request=self.context.get('request'),
+                email=email,  # ✅ CAMBIO AQUÍ: usa email directamente
+                password=password
+            )
+            
             if not user:
                 raise serializers.ValidationError('Credenciales inválidas.')
         else:

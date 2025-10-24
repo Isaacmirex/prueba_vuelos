@@ -12,10 +12,9 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-a(p(%avvz6o_h&0vf4pc^&qeyt1c14x=u(49j!lvadne7rf7vk')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+DEBUG = True
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
-
 
 # Application definition
 INSTALLED_APPS = [
@@ -26,7 +25,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
+    'corsheaders',
+
     # Terceros
     'rest_framework',
     'rest_framework.authtoken',
@@ -36,8 +36,8 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
     'dj_rest_auth.registration',
-    'djcelery_email', # Para correos asíncronos
-    
+    'djcelery_email',
+
     # Apps locales
     'authentication',
     'destinations',
@@ -52,7 +52,8 @@ INSTALLED_APPS = [
 # --- ¡CORRECCIÓN DE CACHÉ! ---
 # Añadimos los middleware de caché. El orden es MUY importante.
 MIDDLEWARE = [
-    'django.middleware.cache.UpdateCacheMiddleware', # Debe ser el primero
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.cache.UpdateCacheMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -61,9 +62,15 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
-    'django.middleware.cache.FetchFromCacheMiddleware', # Debe ser el último
+    'django.middleware.cache.FetchFromCacheMiddleware',
 ]
 # --- FIN DE LA CORRECCIÓN ---
+
+# ------------------------------------------------------------------
+# CONFIGURACIÓN DE CORS
+# ------------------------------------------------------------------
+CORS_ALLOW_ALL_ORIGINS = True 
+# ------------------------------------------------------------------
 
 ROOT_URLCONF = 'config.urls'
 
@@ -93,8 +100,6 @@ DATABASES = {
         'USER': os.getenv('DB_USER'),
         'PASSWORD': os.getenv('DB_PASSWORD'),
         'HOST': os.getenv('DB_HOST', 'localhost'),
-        # ¡CORRECCIÓN DEFINITIVA! Hardcodeamos el puerto de la DB
-        # para evitar que EMAIL_PORT lo contamine.
         'PORT': 5432,
     }
 }
@@ -121,24 +126,29 @@ AUTH_USER_MODEL = 'authentication.User'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ------------------------------------------------------------------
+# BACKENDS DE AUTENTICACIÓN PERSONALIZADOS
+# ------------------------------------------------------------------
+AUTHENTICATION_BACKENDS = [
+    'authentication.backends.EmailBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+# ------------------------------------------------------------------
 
 # --- CONFIGURACIÓN DE REDIS Y CACHÉ ---
-# Asegúrate de estar ejecutando Django localmente (no en Docker)
-# Si ejecutas Django en Docker, cambia '127.0.0.1' a 'redis-local'
 REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
 
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1', # Base de datos 1 para caché
+        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'PICKLE_VERSION': -1,
-            # 'PARSER_CLASS': 'redis.connection.HiredisParser', # <- Eliminado para compatibilidad
         },
         'KEY_PREFIX': 'flight_system',
-        'TIMEOUT': 600,  # 10 minutos (default para cache.set)
+        'TIMEOUT': 600,
     }
 }
 
@@ -146,60 +156,41 @@ CACHES = {
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
-# Configuración personalizada de caché para API (usado en @cache_page)
-API_CACHE_TIMEOUT = 600  # 10 minutos en segundos
-
+# Configuración personalizada de caché para API
+API_CACHE_TIMEOUT = 600
 # --- FIN DE CONFIGURACIÓN DE REDIS Y CACHÉ ---
 
-
 # --- CONFIGURACIÓN DE CELERY ---
-CELERY_BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/0' # Base de datos 0 para Celery
+CELERY_BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'
 CELERY_RESULT_BACKEND = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 # --- FIN DE CONFIGURACIÓN DE CELERY ---
-# --------------------------------------------------------
-# --- CONFIGURACIÓN DE CELERY BEAT (Tareas Programadas) ---
-# --------------------------------------------------------
+
+# --- CONFIGURACIÓN DE CELERY BEAT ---
 from celery.schedules import timedelta
-# Si deseas una hora específica (por ejemplo, 9:00 AM), importa crontab:
-# from celery.schedules import crontab 
 
 CELERY_BEAT_SCHEDULE = {
     'send-flight-reminders-daily': {
-        # Usa la tarea interna de Django para ejecutar management commands
         'task': 'django.core.management.call_command',
-        
-        # Programar para que se ejecute una vez al día
         'schedule': timedelta(days=1), 
-        
-        # El comando que se debe ejecutar (nombre del archivo sin .py)
         'args': ['send_flight_reminders'],
-        
-        # Opcional: Si quieres que se ejecute todos los días a las 9:00 AM (necesita importar crontab)
-        # 'schedule': crontab(hour=9, minute=0),
     },
 }
-# --------------------------------------------------------
 # --- FIN DE CONFIGURACIÓN DE CELERY BEAT ---
-# --------------------------------------------------------
 
-# --- CONFIGURACIÓN DE EMAIL (CON CELERY) ---
-
+# --- CONFIGURACIÓN DE EMAIL ---
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" 
-EMAIL_HOST =  'smtp.gmail.com'
+EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_USE_TLS = True
-EMAIL_PORT =  587
-EMAIL_USE_SSL = False # Desactivado por defecto.
+EMAIL_PORT = 587
+EMAIL_USE_SSL = False
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER') 
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD') 
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
-
-
 # --- FIN DE CONFIGURACIÓN DE EMAIL ---
-
 
 # Django REST Framework y JWT
 REST_FRAMEWORK = {
@@ -216,6 +207,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
 }
 
 REST_AUTH = {
@@ -225,12 +217,11 @@ REST_AUTH = {
     'USER_DETAILS_SERIALIZER': 'authentication.serializers.UserSerializer',
 }
 
-# Configuración de AllAuth (para dj-rest-auth)
+# Configuración de AllAuth
 SITE_ID = 1
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_SESSION_REMEMBER = True
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_UNIQUE_EMAIL = True
-ACCOUNT_EMAIL_VERIFICATION = 'none' # Cambiar a 'mandatory' en producción
-
+ACCOUNT_EMAIL_VERIFICATION = 'none'

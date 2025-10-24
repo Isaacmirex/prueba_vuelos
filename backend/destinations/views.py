@@ -27,7 +27,7 @@ class DestinationViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'code', 'province']
     ordering_fields = ['name', 'code', 'province', 'created_at']
-    ordering = ['name']
+    ordering = ['-id']
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""
